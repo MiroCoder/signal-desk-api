@@ -1,6 +1,8 @@
 from sqlalchemy.orm import Mapped, mapped_column
 from .database import Base
-from sqlalchemy import String
+from sqlalchemy import String, ForeignKey
+from sqlalchemy.orm import relationship
+
 
 class Ticket(Base):
     __tablename__ = "tickets"
@@ -9,3 +11,22 @@ class Ticket(Base):
     title: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column()
     priority: Mapped[int] = mapped_column()
+    project_id: Mapped[int ] = mapped_column(
+        ForeignKey("projects.id"), nullable=False
+    )
+    project: Mapped["Project"] = relationship(back_populates="tickets")
+
+class Project(Base):
+    __tablename__ = "projects"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    tickets: Mapped[list["Ticket"]] = relationship(back_populates="project")
+    owner_id: Mapped[int]  = mapped_column(ForeignKey("users.id"), nullable=False)
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(255),unique=True,index=True)
+    hashed_password: Mapped[str] = mapped_column()
