@@ -2,6 +2,14 @@ from sqlalchemy.orm import Mapped, mapped_column
 from .database import Base
 from sqlalchemy import String, ForeignKey
 from sqlalchemy.orm import relationship
+from enum import Enum
+from sqlalchemy import Enum as SQLEnum
+
+
+class TicketStatus(str, Enum):
+    OPEN = "open"
+    IN_PROGRESS = "in_progress"
+    DONE = "done"
 
 
 class Ticket(Base):
@@ -15,6 +23,8 @@ class Ticket(Base):
         ForeignKey("projects.id"), nullable=False
     )
     project: Mapped["Project"] = relationship(back_populates="tickets")
+    status: Mapped[TicketStatus] = mapped_column(SQLEnum(TicketStatus), default = TicketStatus.OPEN)
+
 
 class Project(Base):
     __tablename__ = "projects"

@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+from .models import TicketStatus
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -42,12 +43,16 @@ class TicketResponse(BaseModel):
     description: str
     priority: int
     project_id: int
+    status: TicketStatus
 
 
 class TicketUpdate(BaseModel):
     title: str | None = None
     description: str | None = None
     priority: int | None = Field(default=None, ge=1, le=5)
+
+class TicketUpdateStatus(BaseModel):
+    status: TicketStatus
 
 
 class UserLogin(BaseModel):

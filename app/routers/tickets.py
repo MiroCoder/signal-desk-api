@@ -5,8 +5,8 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..dependencies import get_current_user
-from ..models import Ticket, Project, User
-from ..schemas import TicketCreate,TicketResponse,TicketUpdate
+from ..models import Ticket, Project, User, TicketStatus
+from ..schemas import TicketCreate, TicketResponse, TicketUpdate, TicketUpdateStatus
 
 router = APIRouter()
 
@@ -76,6 +76,7 @@ def create_ticket(
 
     return {
         "id": db_ticket.id,
+        "status": db_ticket.status,
         **ticket.model_dump()
     }
 
@@ -89,4 +90,32 @@ def get_ticket(ticket_id: int,
 
     if ticket is None:
         raise HTTPException(status_code=404, detail="Ticket not found")
+    return ticket
+
+@router.patch("/tickets/{ticket_id}/status", response_model = TicketResponse)
+def update_ticket_status(ticket_id: int, update: TicketUpdateStatus, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+
+    statement = select(Ticket).join(Project).where(Ticket.id == ticket_id, Project.owner_id == current_user.id)
+    ticket = db.scalar(statement)
+
+    if ticket is None:
+        raise HTTPException(status_code=404,detail="No ticket found.")
+
+    allowed_transitions = {
+        TicketStatus.OPEN: {TicketStatus.IN_PROGRESS},
+        TicketStatus.IN_PROGRESS: {TicketStatus.DONE},
+        TicketStatus.DONE: set(),
+    }
+
+    print("CURRENT:", ticket.status, type(ticket.status))
+    print("NEW:", update.status, type(update.status))
+    print("ALLOWED:", allowed_transitions[ticket.status])
+
+    if update.status not in allowed_transitions[ticket.status]:
+        raise HTTPException(status_code=409, detail="Not allowed")
+
+    ticket.status = update.status
+    db.commit()
+    db.refresh(ticket)
+
     return ticket
