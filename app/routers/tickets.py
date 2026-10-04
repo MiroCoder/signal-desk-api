@@ -1,14 +1,28 @@
 from fastapi import APIRouter, HTTPException, Response
 from fastapi import Depends
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
 from ..dependencies import get_current_user
 from ..models import Ticket, Project, User, TicketStatus
 from ..schemas import TicketCreate, TicketResponse, TicketUpdate, TicketUpdateStatus
+from ..services.tickets import is_status_transition_allowed
+from ..repositories.tickets import get_owned_ticket
 
 router = APIRouter()
+
+
+def get_owned_ticket_or_404(
+        db: Session,
+        ticket_id: int,
+        owner_id: int,
+) -> Ticket:
+    ticket = get_owned_ticket(db, ticket_id, owner_id)
+    if ticket is None:
+        raise HTTPException(status_code=404, detail="No ticket found.")
+    return ticket
+
 
 @router.get("/tickets", response_model=list[TicketResponse])
 def get_tickets(priority: int | None = None,
@@ -24,6 +38,7 @@ def get_tickets(priority: int | None = None,
     tickets = db.scalars(statement).all()
     return tickets
 
+
 @router.patch("/tickets/{ticket_id}", response_model=TicketResponse)
 def update_ticket(
         ticket_id: int,
@@ -31,10 +46,7 @@ def update_ticket(
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
-    statement = select(Ticket).join(Project).where(Ticket.id == ticket_id, Project.owner_id == current_user.id)
-    db_ticket = db.scalar(statement)
-    if db_ticket is None:
-        raise HTTPException(status_code=404, detail="Ticket not found")
+    db_ticket = get_owned_ticket_or_404(db, ticket_id, current_user.id)
 
     update_data = ticket_update.model_dump(exclude_unset=True)
 
@@ -45,17 +57,17 @@ def update_ticket(
     db.refresh(db_ticket)
     return db_ticket
 
+
 @router.delete("/tickets/{ticket_id}")
 def delete_ticket(ticket_id: int,
                   db: Session = Depends(get_db),
                   current_user: User = Depends(get_current_user)):
-    statement = select(Ticket).join(Project).where(Ticket.id == ticket_id, Project.owner_id == current_user.id)
-    db_ticket = db.scalar(statement)
-    if db_ticket is None:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-    db.delete(db_ticket)
+    ticket = get_owned_ticket_or_404(db, ticket_id, current_user.id)
+
+    db.delete(ticket)
     db.commit()
     return Response(status_code=204)
+
 
 @router.post("/tickets", response_model=TicketResponse, status_code=201)
 def create_ticket(
@@ -80,38 +92,26 @@ def create_ticket(
         **ticket.model_dump()
     }
 
+
 @router.get("/tickets/{ticket_id}", response_model=TicketResponse)
 def get_ticket(ticket_id: int,
                db: Session = Depends(get_db),
                current_user: User = Depends(get_current_user)
                ):
-    statement = select(Ticket).join(Project).where(Ticket.id == ticket_id, Project.owner_id == current_user.id)
-    ticket = db.scalar(statement)
-
-    if ticket is None:
-        raise HTTPException(status_code=404, detail="Ticket not found")
+    ticket = get_owned_ticket_or_404(
+        db,
+        ticket_id,
+        current_user.id
+    )
     return ticket
 
-@router.patch("/tickets/{ticket_id}/status", response_model = TicketResponse)
-def update_ticket_status(ticket_id: int, update: TicketUpdateStatus, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
 
-    statement = select(Ticket).join(Project).where(Ticket.id == ticket_id, Project.owner_id == current_user.id)
-    ticket = db.scalar(statement)
+@router.patch("/tickets/{ticket_id}/status", response_model=TicketResponse)
+def update_ticket_status(ticket_id: int, update: TicketUpdateStatus, db: Session = Depends(get_db),
+                         current_user: User = Depends(get_current_user)):
+    ticket = get_owned_ticket_or_404(db, ticket_id, current_user.id)
 
-    if ticket is None:
-        raise HTTPException(status_code=404,detail="No ticket found.")
-
-    allowed_transitions = {
-        TicketStatus.OPEN: {TicketStatus.IN_PROGRESS},
-        TicketStatus.IN_PROGRESS: {TicketStatus.DONE},
-        TicketStatus.DONE: set(),
-    }
-
-    print("CURRENT:", ticket.status, type(ticket.status))
-    print("NEW:", update.status, type(update.status))
-    print("ALLOWED:", allowed_transitions[ticket.status])
-
-    if update.status not in allowed_transitions[ticket.status]:
+    if not is_status_transition_allowed(ticket.status, update.status):
         raise HTTPException(status_code=409, detail="Not allowed")
 
     ticket.status = update.status

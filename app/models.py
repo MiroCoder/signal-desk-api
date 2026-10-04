@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Mapped, mapped_column
 from .database import Base
-from sqlalchemy import String, ForeignKey
+from sqlalchemy import String, ForeignKey, Index, CheckConstraint
 from sqlalchemy.orm import relationship
 from enum import Enum
 from sqlalchemy import Enum as SQLEnum
@@ -14,6 +14,18 @@ class TicketStatus(str, Enum):
 
 class Ticket(Base):
     __tablename__ = "tickets"
+
+    __table_args__ = (
+        Index(
+            "ix_tickets_project_id_priority",
+            "project_id",
+            "priority"
+        ),
+        CheckConstraint(
+            "priority >=1 AND priority <=5",
+            name = "priority_check"
+        )
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(200))
@@ -32,7 +44,7 @@ class Project(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120))
     tickets: Mapped[list["Ticket"]] = relationship(back_populates="project")
-    owner_id: Mapped[int]  = mapped_column(ForeignKey("users.id"), nullable=False)
+    owner_id: Mapped[int]  = mapped_column(ForeignKey("users.id"), nullable=False, index = True)
 
 class User(Base):
     __tablename__ = "users"
